@@ -25,6 +25,7 @@ function updateElo(ratingA, ratingB, scoreA) {
 io.on('connection', (socket) => {
   console.log('Подключился игрок:', socket.id);
 
+  // СОЗДАНИЕ ИГРЫ (Первый игрок)
   socket.on('createGame', (playerName) => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const game = new Chess();
@@ -38,27 +39,32 @@ io.on('connection', (socket) => {
     };
     
     socket.join(roomId);
+    // Отправляем создателю комнаты, что он белый
     socket.emit('gameCreated', { roomId, color: 'w', fen: game.fen() });
     console.log(`Игра создана: ${roomId}`);
   });
 
+  // ПОДКЛЮЧЕНИЕ К ИГРЕ (Второй игрок)
   socket.on('joinGame', ({ roomId, playerName }) => {
     const gameData = games[roomId];
+    
+    // Проверки на ошибки
     if (!gameData) return socket.emit('error', 'Комната не найдена');
     if (Object.keys(gameData.players).length >= 2) return socket.emit('error', 'Комната полна');
     
+    // Добавляем второго игрока и назначаем ему ЧЕРНЫЙ цвет
     gameData.players[socket.id] = { name: playerName, color: 'b', rating: 1200 };
     gameData.status = 'playing';
     
     socket.join(roomId);
     
-    // Отправляем первому игроку (создателю), что игра началась, он играет за белых
+    // 1. Отправляем ПЕРВОМУ игроку (создателю), что игра началась. Он БЕЛЫЙ ('w')
     socket.to(roomId).emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'w'
     });
 
-    // Отправляем второму игроку (который только что зашел), что он играет за черных
+    // 2. Отправляем ВТОРОМУ игроку (который только что зашел), что он ЧЕРНЫЙ ('b')
     socket.emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'b'
@@ -67,19 +73,23 @@ io.on('connection', (socket) => {
     console.log(`Игрок ${playerName} присоединился к ${roomId}`);
   });
 
+  // ОБРАБОТКА ХОДА
   socket.on('makeMove', ({ roomId, move }) => {
     const gameData = games[roomId];
     if (!gameData) return;
     
     const player = gameData.players[socket.id];
+    // Проверяем, что ход делает тот, чья сейчас очередь
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
       const result = gameData.chess.move(move);
       if (!result) throw new Error('Нелегальный ход');
 
+      // Рассылаем новый FEN (позицию) ОБОИМ игрокам в комнате
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
 
+      // Проверка на конец игры
       if (gameData.chess.isGameOver()) {
         let resultForWhite = 0.5;
         if (gameData.chess.isCheckmate()) {
@@ -106,6 +116,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ОТКЛЮЧЕНИЕ
   socket.on('disconnect', () => {
     console.log('Отключился:', socket.id);
   });
