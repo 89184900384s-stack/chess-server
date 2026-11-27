@@ -55,12 +55,8 @@ io.on('connection', (socket) => {
   socket.on('makeMove', ({ roomId, move }) => {
     const gameData = games[roomId];
     if (!gameData) return;
-    
-    const player = gameData.players[socket.id];
-    if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // Убираем лишний promotion, который ломал обычные ходы
       const cleanMove = { from: move.from, to: move.to };
       const piece = gameData.chess.get(move.from);
       if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
