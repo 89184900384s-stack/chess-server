@@ -11,6 +11,17 @@ const io = new Server(server, {
 
 const games = {};
 
+// Встроенная простая функция Эло (K-фактор = 32)
+function updateElo(ratingA, ratingB, scoreA) {
+  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+  const expectedB = 1 - expectedA;
+  const scoreB = 1 - scoreA;
+  const k = 32;
+  const newRatingA = Math.round(ratingA + k * (scoreA - expectedA));
+  const newRatingB = Math.round(ratingB + k * (scoreB - expectedB));
+  return [newRatingA, newRatingB];
+}
+
 io.on('connection', (socket) => {
   console.log('Подключился игрок:', socket.id);
 
@@ -42,13 +53,13 @@ io.on('connection', (socket) => {
     
     socket.join(roomId);
     
-    // Отправляем ПЕРВОМУ игроку (белые)
+    // 1. Отправляем ПЕРВОМУ игроку (создателю), что игра началась. Он БЕЛЫЙ ('w')
     socket.to(roomId).emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'w'
     });
 
-    // Отправляем ВТОРОМУ игроку (черные)
+    // 2. Отправляем ВТОРОМУ игроку (который только что зашел), что он ЧЕРНЫЙ ('b')
     socket.emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'b'
@@ -65,20 +76,42 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // Убираем лишний параметр promotion, который ломал ход
-      const cleanMove = { from: move.from, to: move.to };
+      // Убираем лишний параметр promotion
+      let cleanMove = { from: move.from, to: move.to };
       
-      // Если пешка идет на последнюю линию, добавляем превращение
+      // Если это ход пешкой на последнюю линию, добавляем promotion
       const piece = gameData.chess.get(move.from);
       if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
         cleanMove.promotion = 'q';
       }
 
-      gameData.chess.move(cleanMove);
-      
-      // Рассылаем ОБОИМ игрокам
+      const result = gameData.chess.move(cleanMove);
+      if (!result) throw new Error('Нелегальный ход');
+
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
 
+      // Проверка на конец игры
+      if (gameData.chess.isGameOver()) {
+        let resultForWhite = 0.5;
+        if (gameData.chess.isCheckmate()) {
+          resultForWhite = gameData.chess.turn() === 'b' ? 1 : 0;
+        }
+        
+        const whitePlayer = Object.values(gameData.players).find(p => p.color === 'w');
+        const blackPlayer = Object.values(gameData.players).find(p => p.color === 'b');
+        
+        const [newWhiteRating, newBlackRating] = updateElo(
+          whitePlayer.rating, 
+          blackPlayer.rating, 
+          resultForWhite
+        );
+        
+        io.to(roomId).emit('gameOver', {
+          result: resultForWhite === 1 ? 'Белые победили' : resultForWhite === 0 ? 'Черные победили' : 'Ничья',
+          ratings: { white: newWhiteRating, black: newBlackRating }
+        });
+        delete games[roomId];
+      }
     } catch (e) {
       socket.emit('error', 'Нелегальный ход');
     }
@@ -89,8 +122,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// УБРАЛИ '0.0.0.0', как было в рабочей версии!
-const PORT = process.env.SERVER_PORT || process.env.PORT || 3001;
+// САМАЯ ВАЖНАЯ СТРОКА. БЕЗ '0.0.0.0'!
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
 });
