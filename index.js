@@ -55,6 +55,9 @@ io.on('connection', (socket) => {
   socket.on('makeMove', ({ roomId, move }) => {
     const gameData = games[roomId];
     if (!gameData) return;
+    
+    const player = gameData.players[socket.id];
+    if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
       const cleanMove = { from: move.from, to: move.to };
@@ -65,30 +68,6 @@ io.on('connection', (socket) => {
 
       gameData.chess.move(cleanMove);
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
-
-      // Добавил проверку на конец игры, чтобы работал Эло
-      if (gameData.chess.isGameOver()) {
-        let resultForWhite = 0.5;
-        if (gameData.chess.isCheckmate()) {
-          resultForWhite = gameData.chess.turn() === 'b' ? 1 : 0;
-        }
-        
-        const whitePlayer = Object.values(gameData.players).find(p => p.color === 'w');
-        const blackPlayer = Object.values(gameData.players).find(p => p.color === 'b');
-        
-        if (whitePlayer && blackPlayer) {
-          const [newWhiteRating, newBlackRating] = updateElo(
-            whitePlayer.rating, 
-            blackPlayer.rating, 
-            resultForWhite
-          );
-          
-          io.to(roomId).emit('gameOver', {
-            result: resultForWhite === 1 ? 'Белые победили' : resultForWhite === 0 ? 'Черные победили' : 'Ничья',
-            ratings: { white: newWhiteRating, black: newBlackRating }
-          });
-        }
-      }
     } catch (e) {
       socket.emit('error', 'Нелегальный ход');
     }
