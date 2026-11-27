@@ -11,16 +11,6 @@ const io = new Server(server, {
 
 const games = {};
 
-function updateElo(ratingA, ratingB, scoreA) {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  const expectedB = 1 - expectedA;
-  const scoreB = 1 - scoreA;
-  const k = 32;
-  const newRatingA = Math.round(ratingA + k * (scoreA - expectedA));
-  const newRatingB = Math.round(ratingB + k * (scoreB - expectedB));
-  return [newRatingA, newRatingB];
-}
-
 io.on('connection', (socket) => {
   console.log('Подключился игрок:', socket.id);
 
@@ -31,38 +21,28 @@ io.on('connection', (socket) => {
     games[roomId] = {
       chess: game,
       players: {
-        [socket.id]: { name: playerName, color: 'w', rating: 1200 }
+        [socket.id]: { name: playerName, color: 'w' }
       },
       status: 'waiting'
     };
     
     socket.join(roomId);
     socket.emit('gameCreated', { roomId, color: 'w', fen: game.fen() });
-    console.log(`Игра создана: ${roomId}`);
   });
 
   socket.on('joinGame', ({ roomId, playerName }) => {
     const gameData = games[roomId];
-    
     if (!gameData) return socket.emit('error', 'Комната не найдена');
     if (Object.keys(gameData.players).length >= 2) return socket.emit('error', 'Комната полна');
     
-    gameData.players[socket.id] = { name: playerName, color: 'b', rating: 1200 };
+    gameData.players[socket.id] = { name: playerName, color: 'b' };
     gameData.status = 'playing';
     
     socket.join(roomId);
     
-    socket.to(roomId).emit('gameStarted', { 
-      fen: gameData.chess.fen(),
-      color: 'w'
-    });
-
-    socket.emit('gameStarted', { 
-      fen: gameData.chess.fen(),
-      color: 'b'
-    });
-    
-    console.log(`Игрок ${playerName} присоединился к ${roomId}`);
+    // Отдаем цвета
+    socket.to(roomId).emit('gameStarted', { fen: gameData.chess.fen(), color: 'w' });
+    socket.emit('gameStarted', { fen: gameData.chess.fen(), color: 'b' });
   });
 
   socket.on('makeMove', ({ roomId, move }) => {
@@ -73,43 +53,22 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // БЕЗОПАСНЫЙ ХОД: очищаем от лишнего promotion
-      let cleanMove = { from: move.from, to: move.to };
+      // Пытаемся сделать ход
+      const result = gameData.chess.move(move);
       
-      // Добавляем превращение только если это пешка дошла до края
-      const piece = gameData.chess.get(move.from);
-      if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
-        cleanMove.promotion = 'q';
-      }
-
-      const result = gameData.chess.move(cleanMove);
+      // Если ход не удался (result === null), chess.js выдаст ошибку, и мы ее поймаем
       if (!result) throw new Error('Нелегальный ход');
 
+      // Рассылаем новую позицию
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
 
+      // Проверка на конец игры (если нужно)
       if (gameData.chess.isGameOver()) {
-        let resultForWhite = 0.5;
-        if (gameData.chess.isCheckmate()) {
-          resultForWhite = gameData.chess.turn() === 'b' ? 1 : 0;
-        }
-        
-        const whitePlayer = Object.values(gameData.players).find(p => p.color === 'w');
-        const blackPlayer = Object.values(gameData.players).find(p => p.color === 'b');
-        
-        const [newWhiteRating, newBlackRating] = updateElo(
-          whitePlayer.rating, 
-          blackPlayer.rating, 
-          resultForWhite
-        );
-        
-        io.to(roomId).emit('gameOver', {
-          result: resultForWhite === 1 ? 'Белые победили' : resultForWhite === 0 ? 'Черные победили' : 'Ничья',
-          ratings: { white: newWhiteRating, black: newBlackRating }
-        });
-        delete games[roomId];
+         // Просто отправляем, что игра окончена, без рейтинга, чтобы не усложнять
+         io.to(roomId).emit('gameOver', { result: 'Игра окончена', ratings: { white: 1200, black: 1200 } });
       }
     } catch (e) {
-      console.error("Ошибка хода:", e.message);
+      // Если ход нелегальный, chess.js кидает исключение, мы его ловим и отправляем ошибку клиенту
       socket.emit('error', 'Нелегальный ход');
     }
   });
