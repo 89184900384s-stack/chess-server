@@ -1,4 +1,4 @@
-const express = require('express');
+onst express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Chess } = require('chess.js');
@@ -11,6 +11,7 @@ const io = new Server(server, {
 
 const games = {};
 
+// Встроенная простая функция Эло (K-фактор = 32)
 function updateElo(ratingA, ratingB, scoreA) {
   const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
   const expectedB = 1 - expectedA;
@@ -43,7 +44,6 @@ io.on('connection', (socket) => {
 
   socket.on('joinGame', ({ roomId, playerName }) => {
     const gameData = games[roomId];
-    
     if (!gameData) return socket.emit('error', 'Комната не найдена');
     if (Object.keys(gameData.players).length >= 2) return socket.emit('error', 'Комната полна');
     
@@ -52,11 +52,13 @@ io.on('connection', (socket) => {
     
     socket.join(roomId);
     
+    // Отправляем первому игроку (создателю), что игра началась, он играет за белых
     socket.to(roomId).emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'w'
     });
 
+    // Отправляем второму игроку (который только что зашел), что он играет за черных
     socket.emit('gameStarted', { 
       fen: gameData.chess.fen(),
       color: 'b'
@@ -73,16 +75,7 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // ИСПРАВЛЕНИЕ: копируем только from и to
-      let cleanMove = { from: move.from, to: move.to };
-      
-      // Если это пешка на последнюю линию, добавляем превращение
-      const piece = gameData.chess.get(move.from);
-      if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
-        cleanMove.promotion = 'q';
-      }
-
-      const result = gameData.chess.move(cleanMove);
+      const result = gameData.chess.move(move);
       if (!result) throw new Error('Нелегальный ход');
 
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
@@ -118,7 +111,6 @@ io.on('connection', (socket) => {
   });
 });
 
-// РАБОЧИЙ ВАРИАНТ ИЗ САМОГО НАЧАЛА
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
