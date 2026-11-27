@@ -76,18 +76,13 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // Убираем лишний параметр promotion
-      let cleanMove = { from: move.from, to: move.to };
+      // ИСПРАВЛЕНИЕ: отправляем только from и to
+      const cleanMove = { from: move.from, to: move.to };
       
-      // Если это ход пешкой на последнюю линию, добавляем promotion
-      const piece = gameData.chess.get(move.from);
-      if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
-        cleanMove.promotion = 'q';
-      }
-
       const result = gameData.chess.move(cleanMove);
       if (!result) throw new Error('Нелегальный ход');
 
+      // Рассылаем новый FEN (позицию) ОБОИМ игрокам в комнате
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
 
       // Проверка на конец игры
@@ -122,7 +117,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// САМАЯ ВАЖНАЯ СТРОКА. БЕЗ '0.0.0.0'!
+// ТВОЙ РАБОЧИЙ ПОРТ
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
