@@ -73,10 +73,10 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // ИСПРАВЛЕНИЕ: очищаем от лишнего promotion
-      const cleanMove = { from: move.from, to: move.to };
+      // ИСПРАВЛЕНИЕ: копируем только from и to
+      let cleanMove = { from: move.from, to: move.to };
       
-      // Добавляем превращение только если пешка дошла до края
+      // Если это пешка на последнюю линию, добавляем превращение
       const piece = gameData.chess.get(move.from);
       if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
         cleanMove.promotion = 'q';
@@ -118,6 +118,7 @@ io.on('connection', (socket) => {
   });
 });
 
+// РАБОЧИЙ ВАРИАНТ ИЗ САМОГО НАЧАЛА
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
