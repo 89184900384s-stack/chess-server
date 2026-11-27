@@ -52,10 +52,18 @@ io.on('connection', (socket) => {
     
     socket.join(roomId);
     
-    io.to(roomId).emit('gameStarted', { 
+    // Отправляем первому игроку (создателю), что игра началась, он играет за белых
+    socket.to(roomId).emit('gameStarted', { 
       fen: gameData.chess.fen(),
-      players: gameData.players 
+      color: 'w'
     });
+
+    // Отправляем второму игроку (который только что зашел), что он играет за черных
+    socket.emit('gameStarted', { 
+      fen: gameData.chess.fen(),
+      color: 'b'
+    });
+    
     console.log(`Игрок ${playerName} присоединился к ${roomId}`);
   });
 
@@ -81,7 +89,6 @@ io.on('connection', (socket) => {
         const whitePlayer = Object.values(gameData.players).find(p => p.color === 'w');
         const blackPlayer = Object.values(gameData.players).find(p => p.color === 'b');
         
-        // Используем встроенную функцию
         const [newWhiteRating, newBlackRating] = updateElo(
           whitePlayer.rating, 
           blackPlayer.rating, 
@@ -106,5 +113,5 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`Сервер запущен на http://localhost:${PORT}`);
+  console.log(`Сервер запущен на порту ${PORT}`);
 });
