@@ -36,14 +36,21 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      // Просто передаем ход. Если он нелегальный, chess.js кинет ошибку
+      // Пытаемся сделать ход (chess.js сам проверит легальность)
       gameData.chess.move(move);
       io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
     } catch (e) {
       socket.emit('error', 'Нелегальный ход');
     }
   });
+
+  socket.on('disconnect', () => {
+    console.log('Отключился:', socket.id);
+  });
 });
 
-const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => console.log(`Сервер на порту ${PORT}`));
+// ИСПРАВЛЕНИЕ ПОРТА: Enzonic использует SERVER_PORT
+const PORT = process.env.SERVER_PORT || process.env.PORT || 3001;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Сервер запущен на порту ${PORT}`);
+});
