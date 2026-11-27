@@ -11,7 +11,6 @@ const io = new Server(server, {
 
 const games = {};
 
-// Встроенная простая функция Эло (K-фактор = 32)
 function updateElo(ratingA, ratingB, scoreA) {
   const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
   const expectedB = 1 - expectedA;
@@ -23,8 +22,6 @@ function updateElo(ratingA, ratingB, scoreA) {
 }
 
 io.on('connection', (socket) => {
-  console.log('Подключился игрок:', socket.id);
-
   socket.on('createGame', (playerName) => {
     const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const game = new Chess();
@@ -39,7 +36,6 @@ io.on('connection', (socket) => {
     
     socket.join(roomId);
     socket.emit('gameCreated', { roomId, color: 'w', fen: game.fen() });
-    console.log(`Игра создана: ${roomId}`);
   });
 
   socket.on('joinGame', ({ roomId, playerName }) => {
@@ -52,19 +48,8 @@ io.on('connection', (socket) => {
     
     socket.join(roomId);
     
-    // Отправляем первому игроку (создателю), что игра началась, он играет за белых
-    socket.to(roomId).emit('gameStarted', { 
-      fen: gameData.chess.fen(),
-      color: 'w'
-    });
-
-    // Отправляем второму игроку (который только что зашел), что он играет за черных
-    socket.emit('gameStarted', { 
-      fen: gameData.chess.fen(),
-      color: 'b'
-    });
-    
-    console.log(`Игрок ${playerName} присоединился к ${roomId}`);
+    socket.to(roomId).emit('gameStarted', { fen: gameData.chess.fen(), color: 'w' });
+    socket.emit('gameStarted', { fen: gameData.chess.fen(), color: 'b' });
   });
 
   socket.on('makeMove', ({ roomId, move }) => {
@@ -75,39 +60,18 @@ io.on('connection', (socket) => {
     if (!player || player.color !== gameData.chess.turn()) return;
 
     try {
-      const result = gameData.chess.move(move);
-      if (!result) throw new Error('Нелегальный ход');
-
-      io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
-
-      if (gameData.chess.isGameOver()) {
-        let resultForWhite = 0.5;
-        if (gameData.chess.isCheckmate()) {
-          resultForWhite = gameData.chess.turn() === 'b' ? 1 : 0;
-        }
-        
-        const whitePlayer = Object.values(gameData.players).find(p => p.color === 'w');
-        const blackPlayer = Object.values(gameData.players).find(p => p.color === 'b');
-        
-        const [newWhiteRating, newBlackRating] = updateElo(
-          whitePlayer.rating, 
-          blackPlayer.rating, 
-          resultForWhite
-        );
-        
-        io.to(roomId).emit('gameOver', {
-          result: resultForWhite === 1 ? 'Белые победили' : resultForWhite === 0 ? 'Черные победили' : 'Ничья',
-          ratings: { white: newWhiteRating, black: newBlackRating }
-        });
-        delete games[roomId];
+      // Убираем лишний promotion, который ломал обычные ходы
+      const cleanMove = { from: move.from, to: move.to };
+      const piece = gameData.chess.get(move.from);
+      if (piece && piece.type === 'p' && (move.to[1] === '8' || move.to[1] === '1')) {
+        cleanMove.promotion = 'q';
       }
+
+      gameData.chess.move(cleanMove);
+      io.to(roomId).emit('moveMade', { fen: gameData.chess.fen() });
     } catch (e) {
       socket.emit('error', 'Нелегальный ход');
     }
-  });
-
-  socket.on('disconnect', () => {
-    console.log('Отключился:', socket.id);
   });
 });
 
